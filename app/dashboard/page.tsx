@@ -12,12 +12,13 @@ import Link from "next/link";
 import { Upload, Image, CreditCard } from "lucide-react";
 import DashboardShell from "@/components/dashboard-shell";
 import DashboardHeader from "@/components/dashboard-header";
+import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
 
   if (!user) {
-    return <div>Loading...</div>;
+    redirect("/auth/signin");
   }
 
   // Get user profile with credits information

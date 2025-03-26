@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button";
 import DashboardShell from "@/components/dashboard-shell";
 import DashboardHeader from "@/components/dashboard-header";
 import UploadForm from "@/components/upload-form";
+import { redirect } from "next/navigation";
 
 export default async function GeneratePage() {
   const user = await getCurrentUser();
 
   if (!user) {
-    return <div>Loading...</div>;
+    redirect("/auth/signin");
   }
 
   // Get user profile with credits information

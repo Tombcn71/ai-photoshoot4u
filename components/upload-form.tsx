@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { HEADSHOT_BACKGROUNDS, HEADSHOT_OUTFITS } from "@/lib/astria";
 import { supabase } from "@/lib/supabase";
@@ -32,36 +33,48 @@ export default function UploadForm() {
   const [selectedOutfit, setSelectedOutfit] = useState("business");
   const [credits, setCredits] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasTeamLeads, setHasTeamLeads] = useState(false);
+  const [useTeamLeadCredits, setUseTeamLeadCredits] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
   const { toast } = useToast();
 
-  // Fetch user credits on component mount
+  // Fetch user credits and team lead status on component mount
   useEffect(() => {
-    async function fetchUserCredits() {
+    async function fetchUserData() {
       try {
         const {
           data: { session },
         } = await supabase.auth.getSession();
         if (!session) return;
 
-        const { data, error } = await supabase
+        // Get user credits
+        const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("credits")
           .eq("id", session.user.id)
           .single();
 
-        if (error) throw error;
-        setCredits(data.credits);
+        if (profileError) throw profileError;
+        setCredits(profile.credits);
+
+        // Check if user has team leads
+        const { data: teamLeads, error: teamLeadsError } = await supabase
+          .from("team_members")
+          .select("team_lead_id")
+          .eq("member_id", session.user.id);
+
+        if (teamLeadsError) throw teamLeadsError;
+        setHasTeamLeads(teamLeads && teamLeads.length > 0);
       } catch (error) {
-        console.error("Error fetching credits:", error);
+        console.error("Error fetching user data:", error);
         setError(
           "Failed to fetch your available credits. Please refresh the page."
         );
       }
     }
 
-    fetchUserCredits();
+    fetchUserData();
   }, []);
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -132,8 +145,13 @@ export default function UploadForm() {
       return;
     }
 
-    if (credits !== null && credits < 1) {
-      setError("You don't have enough credits. Please purchase more credits.");
+    const hasEnoughCredits = credits !== null && credits >= 1;
+    const canUseTeamLeadCredits = hasTeamLeads && useTeamLeadCredits;
+
+    if (!hasEnoughCredits && !canUseTeamLeadCredits) {
+      setError(
+        "You don't have enough credits. Please purchase more credits or use your team lead's credits."
+      );
       return;
     }
 
@@ -146,6 +164,10 @@ export default function UploadForm() {
       formData.append("photo", selectedPhoto);
       formData.append("background", selectedBackground);
       formData.append("outfit", selectedOutfit);
+      formData.append(
+        "useTeamLeadCredits",
+        canUseTeamLeadCredits ? "true" : "false"
+      );
 
       // Submit the form to the API
       const response = await fetch("/api/headshots/generate", {
@@ -311,6 +333,20 @@ export default function UploadForm() {
             </Tabs>
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
+            {hasTeamLeads && (credits === null || credits < 1) && (
+              <div className="flex items-center space-x-2 mb-2 w-full">
+                <Checkbox
+                  id="use-team-lead-credits"
+                  checked={useTeamLeadCredits}
+                  onCheckedChange={(checked) =>
+                    setUseTeamLeadCredits(checked as boolean)
+                  }
+                />
+                <Label htmlFor="use-team-lead-credits">
+                  Use my team lead's credits
+                </Label>
+              </div>
+            )}
             <p className="text-sm text-muted-foreground w-full">
               This will use 1 credit to generate 40 professional headshots.
               {credits !== null && (
@@ -330,7 +366,8 @@ export default function UploadForm() {
               disabled={
                 isUploading ||
                 !selectedPhoto ||
-                (credits !== null && credits < 1)
+                ((credits === null || credits < 1) &&
+                  (!hasTeamLeads || !useTeamLeadCredits))
               }>
               {isUploading ? (
                 <>

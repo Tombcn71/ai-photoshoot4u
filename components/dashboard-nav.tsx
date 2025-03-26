@@ -1,95 +1,66 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { BarChart, Briefcase, CreditCard, Home, Image, Mail, Settings, Upload, Users } from "lucide-react"
+import type React from "react";
 
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Home, Upload, Image, CreditCard, Users } from "lucide-react";
 
-interface DashboardNavProps {
-  isBusinessAdmin?: boolean
+interface NavItem {
+  title: string;
+  href: string;
+  icon: React.ReactNode;
 }
 
-export default function DashboardNav({ isBusinessAdmin = false }: DashboardNavProps) {
-  const pathname = usePathname()
+export default function DashboardNav() {
+  const pathname = usePathname();
 
-  const navItems = [
+  // Define navigation items - removing any business or settings references
+  const navItems: NavItem[] = [
     {
       title: "Dashboard",
-      href: isBusinessAdmin ? "/dashboard/business" : "/dashboard",
-      icon: Home,
+      href: "/dashboard",
+      icon: <Home className="mr-2 h-4 w-4" />,
     },
     {
       title: "Generate",
       href: "/dashboard/generate",
-      icon: Upload,
+      icon: <Upload className="mr-2 h-4 w-4" />,
     },
     {
       title: "Gallery",
       href: "/dashboard/gallery",
-      icon: Image,
+      icon: <Image className="mr-2 h-4 w-4" />,
     },
-    ...(isBusinessAdmin
-      ? [
-          {
-            title: "Team",
-            href: "/dashboard/business#team-management",
-            icon: Users,
-          },
-          {
-            title: "Invitations",
-            href: "/dashboard/business#invitations",
-            icon: Mail,
-          },
-          {
-            title: "Reports",
-            href: "/dashboard/business/reports",
-            icon: BarChart,
-          },
-        ]
-      : [
-          {
-            title: "Team",
-            href: "/dashboard/team",
-            icon: Users,
-          },
-        ]),
+    {
+      title: "Team",
+      href: "/dashboard/team",
+      icon: <Users className="mr-2 h-4 w-4" />,
+    },
     {
       title: "Billing",
-      href: isBusinessAdmin ? "/dashboard/business#purchase-credits" : "/dashboard/billing",
-      icon: CreditCard,
+      href: "/dashboard/billing",
+      icon: <CreditCard className="mr-2 h-4 w-4" />,
     },
-    {
-      title: "Settings",
-      href: "/dashboard/settings",
-      icon: Settings,
-    },
-    ...(!isBusinessAdmin
-      ? [
-          {
-            title: "Business Upgrade",
-            href: "/dashboard/settings/business",
-            icon: Briefcase,
-          },
-        ]
-      : []),
-  ]
+  ];
 
   return (
-    <nav className="grid items-start gap-2 p-2">
+    <nav className="grid gap-1">
       {navItems.map((item) => (
         <Link key={item.href} href={item.href}>
           <Button
             variant={pathname === item.href ? "secondary" : "ghost"}
-            className={cn("w-full justify-start", pathname === item.href && "bg-secondary")}
-          >
-            <item.icon className="mr-2 h-4 w-4" />
+            className={cn(
+              "w-full justify-start",
+              pathname === item.href ? "bg-secondary" : ""
+            )}>
+            {item.icon}
             {item.title}
           </Button>
         </Link>
       ))}
     </nav>
-  )
+  );
 }
-
