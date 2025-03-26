@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   const body = await request.text();
   // Fix: Await the headers() function
   const headersList = headers();
-  const signature = headersList.get("stripe-signature") as string;
+  const signature = (await headersList).get("stripe-signature") as string;
 
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
     return NextResponse.json(
