@@ -1,17 +1,19 @@
-import SimpleSignUp from "@/components/auth/simple-signup";
+import { Suspense } from "react";
+import SignUpForm from "./SignUpForm";
 
 export default function SignUpPage() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">Create an Account</h1>
-          <p className="text-sm text-muted-foreground mt-2">
-            Sign up to get started
+    <div className="container flex h-screen w-full flex-col items-center justify-center">
+      <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
+        <div className="flex flex-col space-y-2 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight">Sign Up</h1>
+          <p className="text-sm text-muted-foreground">
+            Create an account to get started
           </p>
         </div>
-
-        <SimpleSignUp />
+        <Suspense fallback={<div className="text-center">Loading...</div>}>
+          <SignUpForm />
+        </Suspense>
       </div>
     </div>
   );

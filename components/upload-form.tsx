@@ -23,7 +23,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { HEADSHOT_BACKGROUNDS, HEADSHOT_OUTFITS } from "@/lib/astria";
-import { supabase } from "@/lib/supabase";
+// Update the import to use the client version
+import { supabase } from "@/lib/supabase-client";
 
 export default function UploadForm() {
   const [isUploading, setIsUploading] = useState(false);

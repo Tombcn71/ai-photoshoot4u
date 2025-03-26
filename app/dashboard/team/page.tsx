@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import DashboardShell from "@/components/dashboard-shell";
@@ -15,6 +15,9 @@ export default async function TeamPage() {
   if (!user) {
     redirect("/auth/signin");
   }
+
+  // Create server supabase client
+  const supabase = await createServerSupabaseClient();
 
   // Check if the user has enough credits to invite team members
   const { data: profile } = await supabase

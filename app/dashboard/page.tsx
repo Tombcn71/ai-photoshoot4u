@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,7 +13,6 @@ import Link from "next/link";
 import { Upload, Image, CreditCard } from "lucide-react";
 import DashboardShell from "@/components/dashboard-shell";
 import DashboardHeader from "@/components/dashboard-header";
-import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
@@ -22,11 +22,7 @@ export default async function DashboardPage() {
   }
 
   // Get user profile with credits information
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .single();
+  const supabase = await createServerSupabaseClient();
 
   // Get recent headshot jobs
   const { data: recentJobs } = await supabase
@@ -39,7 +35,7 @@ export default async function DashboardPage() {
   return (
     <DashboardShell>
       <DashboardHeader
-        heading={`Welcome, ${profile?.full_name || user.name || "User"}`}
+        heading={`Welcome, ${user?.full_name || user.name || "User"}`}
         text="Generate professional AI headshots in minutes"
       />
 
@@ -52,7 +48,7 @@ export default async function DashboardPage() {
             <CreditCard className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{profile?.credits || 0}</div>
+            <div className="text-2xl font-bold">{user?.credits || 0}</div>
             <p className="text-xs text-muted-foreground">
               Credits available for generating headshots
             </p>

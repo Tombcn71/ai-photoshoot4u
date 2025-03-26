@@ -3,10 +3,11 @@
 import type React from "react";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Home, Upload, Image, CreditCard, Users } from "lucide-react";
+import { Home, Upload, Image, CreditCard, Users, LogOut } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface NavItem {
   title: string;
@@ -16,8 +17,9 @@ interface NavItem {
 
 export default function DashboardNav() {
   const pathname = usePathname();
+  const router = useRouter();
 
-  // Define navigation items - removing any business or settings references
+  // Define navigation items
   const navItems: NavItem[] = [
     {
       title: "Dashboard",
@@ -46,6 +48,12 @@ export default function DashboardNav() {
     },
   ];
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/");
+    router.refresh();
+  };
+
   return (
     <nav className="grid gap-1">
       {navItems.map((item) => (
@@ -61,6 +69,16 @@ export default function DashboardNav() {
           </Button>
         </Link>
       ))}
+
+      <div className="mt-auto pt-4">
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-muted-foreground hover:text-foreground hover:bg-muted"
+          onClick={handleLogout}>
+          <LogOut className="mr-2 h-4 w-4" />
+          Log out
+        </Button>
+      </div>
     </nav>
   );
 }

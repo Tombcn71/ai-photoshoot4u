@@ -1,28 +1,29 @@
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
 
 export async function middleware(req: NextRequest) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  const res = NextResponse.next();
 
-  // If no token and trying to access protected routes
-  if (
-    !token &&
-    (req.nextUrl.pathname.startsWith("/dashboard") ||
-      req.nextUrl.pathname.startsWith("/api/business"))
-  ) {
-    const redirectUrl = new URL("/auth/signin", req.url);
-    redirectUrl.searchParams.set("redirect", req.nextUrl.pathname);
-    return NextResponse.redirect(redirectUrl);
-  }
+  // Create a Supabase client configured to use cookies
+  const supabase = createMiddlewareClient({ req, res });
 
-  // If accessing business routes, check if user is a business admin
-  // This would need to be implemented with your Supabase logic
-  // For now, we'll just let the server-side checks handle this
+  // Refresh session if expired - required for Server Components
+  await supabase.auth.getSession();
 
-  return NextResponse.next();
+  return res;
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/business/:path*"],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public (public files)
+     * - auth (auth pages)
+     */
+    "/((?!_next/static|_next/image|favicon.ico|public|auth).*)",
+  ],
 };

@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export default async function GeneratePage() {
   }
 
   // Get user profile with credits information
+  const supabase = await createServerSupabaseClient();
   const { data: profile } = await supabase
     .from("profiles")
     .select("credits")

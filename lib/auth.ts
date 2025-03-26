@@ -1,29 +1,46 @@
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { supabase } from "./supabase";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 
-// Get the current session
-export async function getSession() {
-  return await getServerSession(authOptions);
-}
-
-// Get the current user
+// Get the current authenticated user
 export async function getCurrentUser() {
-  const session = await getSession();
-  return session?.user;
+  const supabase = await createServerSupabaseClient();
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      return null;
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", session.user.id)
+      .single();
+
+    return {
+      ...session.user,
+      ...profile,
+    };
+  } catch (error) {
+    console.error("Error getting current user:", error);
+    return null;
+  }
 }
 
-// Get the current user's profile from Supabase
-export async function getUserProfile() {
-  const user = await getCurrentUser();
+// Check if the user is authenticated
+export async function isAuthenticated() {
+  const supabase = await createServerSupabaseClient();
 
-  if (!user?.email) return null;
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-  const { data } = await supabase
-    .from("users")
-    .select("*")
-    .eq("email", user.email)
-    .single();
-
-  return data;
+    return !!session;
+  } catch (error) {
+    console.error("Error checking authentication:", error);
+    return false;
+  }
 }

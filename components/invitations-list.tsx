@@ -21,7 +21,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/lib/supabase";
+// Update the import to use the client version
+import { supabase } from "@/lib/supabase-client";
 import InviteMemberDialog from "@/components/invite-member-dialog";
 
 interface Invitation {
