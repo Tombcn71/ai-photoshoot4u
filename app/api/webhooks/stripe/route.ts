@@ -2,13 +2,27 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
-import { stripe } from "@/lib/stripe-server";
+import Stripe from "stripe";
 import { CREDIT_PACKAGES } from "@/lib/stripe-client";
+
+// Initialize Stripe directly in the route handler
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error("STRIPE_SECRET_KEY is not set");
+}
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2025-02-24.acacia",
+  appInfo: {
+    name: "AI Headshots Generator",
+    version: "1.0.0",
+  },
+});
 
 export async function POST(request: Request) {
   const body = await request.text();
-  const headersList = headers();
-  const signature = (await headersList).get("stripe-signature") as string;
+  // Await the headers function to get the headers object
+  const headersList = await headers();
+  const signature = headersList.get("stripe-signature") as string;
 
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
     return NextResponse.json(

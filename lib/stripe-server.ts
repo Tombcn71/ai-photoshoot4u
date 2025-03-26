@@ -2,13 +2,16 @@
 
 import Stripe from "stripe";
 
+// This file can only export async functions when marked with "use server"
+// So we'll create async wrapper functions for all Stripe operations
+
+// Initialize Stripe
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error("STRIPE_SECRET_KEY is not set");
 }
 
-// Update the Stripe API version from 2023-10-16 to 2025-02-24.acacia
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2025-02-24.acacia", // Updated to the latest API version
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2025-02-24.acacia",
   appInfo: {
     name: "AI Headshots Generator",
     version: "1.0.0",

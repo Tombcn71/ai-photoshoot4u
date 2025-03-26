@@ -1,8 +1,61 @@
 import { NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
-import { createCheckoutSession } from "@/lib/stripe-server";
 import { CREDIT_PACKAGES } from "@/lib/stripe-client";
+import Stripe from "stripe";
+
+// Initialize Stripe directly in the route handler
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error("STRIPE_SECRET_KEY is not set");
+}
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2025-02-24.acacia",
+  appInfo: {
+    name: "AI Headshots Generator",
+    version: "1.0.0",
+  },
+});
+
+// Create a Stripe Checkout Session
+async function createCheckoutSession({
+  priceId,
+  userId,
+  customerEmail,
+  successUrl,
+  cancelUrl,
+}: {
+  priceId: string;
+  userId: string;
+  customerEmail?: string;
+  successUrl: string;
+  cancelUrl: string;
+}) {
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      billing_address_collection: "auto",
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata: {
+        userId,
+      },
+      ...(customerEmail && { customer_email: customerEmail }),
+    });
+
+    return { sessionId: session.id, url: session.url };
+  } catch (error) {
+    console.error("Error creating checkout session:", error);
+    throw error;
+  }
+}
 
 export async function POST(request: Request) {
   try {
