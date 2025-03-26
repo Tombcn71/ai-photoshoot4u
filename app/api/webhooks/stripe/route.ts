@@ -53,8 +53,12 @@ export async function POST(request: Request) {
     // Handle the event
     switch (event.type) {
       case "checkout.session.completed": {
-        const session = event.data.object as any;
-        const userId = session.metadata.userId;
+        const session = event.data.object as Stripe.Checkout.Session;
+        const userId = session.metadata?.userId;
+
+        if (!userId) {
+          throw new Error("User ID not found in session metadata");
+        }
 
         // Get the price ID from the session
         const lineItems = await stripe.checkout.sessions.listLineItems(
@@ -74,6 +78,71 @@ export async function POST(request: Request) {
         if (!creditPackage) {
           throw new Error(`Credit package not found for price ID: ${priceId}`);
         }
+
+        // Get coupon information if a coupon was used
+        let couponData = null;
+
+        try {
+          // Retrieve the checkout session with expanded discount data
+          const expandedSession = await stripe.checkout.sessions.retrieve(
+            session.id,
+            {
+              expand: [
+                "total_details.breakdown.discounts",
+                "line_items.data.discounts",
+              ],
+            }
+          );
+
+          // Check if we have discount information in total_details
+          const discounts = expandedSession.total_details?.breakdown?.discounts;
+
+          if (discounts && discounts.length > 0) {
+            // Get the coupon details from the first discount
+            const discount = discounts[0];
+
+            if (discount.discount?.coupon) {
+              const coupon = discount.discount.coupon;
+              couponData = {
+                id: coupon.id,
+                name: coupon.name || coupon.id,
+                amountOff: coupon.amount_off,
+                percentOff: coupon.percent_off,
+              };
+            }
+          }
+
+          // If we couldn't find coupon data in total_details, try line_items
+          if (!couponData && expandedSession.line_items?.data) {
+            for (const item of expandedSession.line_items.data) {
+              if (item.discounts && item.discounts.length > 0) {
+                for (const discount of item.discounts) {
+                  if (discount.discount?.coupon) {
+                    const coupon = discount.discount.coupon;
+                    couponData = {
+                      id: coupon.id,
+                      name: coupon.name || coupon.id,
+                      amountOff: coupon.amount_off,
+                      percentOff: coupon.percent_off,
+                    };
+                    break;
+                  }
+                }
+                if (couponData) break;
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error retrieving coupon information:", error);
+          // Continue without coupon data if there's an error
+        }
+
+        // Calculate discount amount
+        const subtotal = session.amount_subtotal
+          ? session.amount_subtotal / 100
+          : 0;
+        const total = session.amount_total ? session.amount_total / 100 : 0;
+        const discountAmount = subtotal - total;
 
         // Update user credits in the database
         const { data: profile, error: profileError } = await supabase
@@ -106,13 +175,21 @@ export async function POST(request: Request) {
         // Record the payment in the database
         const { error: paymentError } = await supabase.from("payments").insert({
           user_id: userId,
-          amount: session.amount_total / 100, // Convert from cents to dollars
-          currency: session.currency,
+          amount: total,
+          currency: session.currency || "usd",
           status: "completed",
-          payment_intent_id: session.payment_intent,
+          payment_intent_id:
+            typeof session.payment_intent === "string"
+              ? session.payment_intent
+              : null,
           stripe_session_id: session.id,
           credits_purchased: creditPackage.credits,
           package_id: creditPackage.id,
+          metadata: {
+            coupon: couponData,
+            original_amount: subtotal,
+            discount_amount: discountAmount,
+          },
         });
 
         if (paymentError) {
@@ -125,7 +202,9 @@ export async function POST(request: Request) {
           .insert({
             user_id: userId,
             amount: creditPackage.credits,
-            description: `Purchased ${creditPackage.credits} credits`,
+            description: `Purchased ${creditPackage.credits} credits${
+              couponData ? ` with coupon ${couponData.id}` : ""
+            }`,
             type: "purchase",
           });
 
@@ -139,7 +218,7 @@ export async function POST(request: Request) {
       }
 
       case "payment_intent.payment_failed": {
-        const paymentIntent = event.data.object as any;
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
         console.error(`Payment failed: ${paymentIntent.id}`);
 
         // You could update the database to mark the payment as failed

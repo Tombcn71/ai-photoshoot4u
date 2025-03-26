@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     console.log("Request body:", body);
 
-    const { priceId, successUrl, cancelUrl } = body;
+    const { priceId, couponId, successUrl, cancelUrl } = body;
 
     if (!priceId || !successUrl || !cancelUrl) {
       console.error("Missing required fields:", {
@@ -74,25 +74,52 @@ export async function POST(request: Request) {
 
     console.log("Creating Stripe checkout session for user:", session.user.id);
 
+    // Prepare checkout session parameters
+    const checkoutParams: Stripe.Checkout.SessionCreateParams = {
+      payment_method_types: ["card"],
+      billing_address_collection: "auto",
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata: {
+        userId: session.user.id,
+      },
+      ...(session.user.email && { customer_email: session.user.email }),
+    };
+
+    // Apply coupon if provided
+    if (couponId) {
+      try {
+        // Verify the coupon exists and is valid
+        const coupon = await stripe.coupons.retrieve(couponId);
+
+        if (coupon && coupon.valid) {
+          checkoutParams.discounts = [
+            {
+              coupon: couponId,
+            },
+          ];
+          console.log(`Applied coupon: ${couponId}`);
+        } else {
+          console.warn(`Coupon ${couponId} is invalid or expired`);
+        }
+      } catch (error) {
+        console.error(`Error retrieving coupon ${couponId}:`, error);
+        // Continue without the coupon if there's an error
+      }
+    }
+
     // Create a checkout session
     try {
-      const stripeSession = await stripe.checkout.sessions.create({
-        payment_method_types: ["card"],
-        billing_address_collection: "auto",
-        line_items: [
-          {
-            price: priceId,
-            quantity: 1,
-          },
-        ],
-        mode: "payment",
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-        metadata: {
-          userId: session.user.id,
-        },
-        ...(session.user.email && { customer_email: session.user.email }),
-      });
+      const stripeSession = await stripe.checkout.sessions.create(
+        checkoutParams
+      );
 
       console.log("Checkout session created:", stripeSession.id);
 

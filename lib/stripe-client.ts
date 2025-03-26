@@ -1,34 +1,32 @@
-// This file contains only client-safe Stripe constants and functions
-
-// Credit package options
 export const CREDIT_PACKAGES = [
   {
     id: "basic",
     name: "Basic",
-    credits: 10,
+    description: "100 AI Headshots",
+    credits: 100,
     price: 9.99,
-    priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_BASIC || "price_basic",
-    description: "10 credits for generating AI headshots",
-    popular: false,
+    priceId:
+      process.env.STRIPE_BASIC_PRICE_ID || "price_1O4KyJ2eZvKYlo2C3Ix0Ym6R",
   },
   {
     id: "standard",
     name: "Standard",
-    credits: 50,
-    price: 39.99,
-    priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_STANDARD || "price_standard",
-    description: "50 credits for generating AI headshots",
+    description: "500 AI Headshots",
+    credits: 500,
+    price: 49.99,
+    priceId:
+      process.env.STRIPE_STANDARD_PRICE_ID || "price_1O4KzZ2eZvKYlo2C75ZDwEXG",
     popular: true,
-    savePercent: 20,
+    savePercent: 10,
   },
   {
     id: "premium",
     name: "Premium",
-    credits: 100,
-    price: 69.99,
-    priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_PREMIUM || "price_premium",
-    description: "100 credits for generating AI headshots",
-    popular: false,
-    savePercent: 30,
+    description: "1000 AI Headshots",
+    credits: 1000,
+    price: 99.99,
+    priceId:
+      process.env.STRIPE_PREMIUM_PRICE_ID || "price_1O4L0i2eZvKYlo2C2Q9j3t9r",
+    savePercent: 15,
   },
 ];
