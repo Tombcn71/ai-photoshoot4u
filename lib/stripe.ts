@@ -4,8 +4,9 @@ if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error("STRIPE_SECRET_KEY is not set");
 }
 
+// Update the Stripe API version from 2023-10-16 to 2025-02-24.acacia
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2023-10-16", // Use the latest API version
+  apiVersion: "2025-02-24.acacia", // Updated to the latest API version
   appInfo: {
     name: "AI Headshots Generator",
     version: "1.0.0",
