@@ -17,55 +17,40 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   },
 });
 
-// Create a Stripe Checkout Session
-async function createCheckoutSession({
-  priceId,
-  userId,
-  customerEmail,
-  successUrl,
-  cancelUrl,
-}: {
-  priceId: string;
-  userId: string;
-  customerEmail?: string;
-  successUrl: string;
-  cancelUrl: string;
-}) {
-  try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
-      billing_address_collection: "auto",
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      mode: "payment",
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      metadata: {
-        userId,
-      },
-      ...(customerEmail && { customer_email: customerEmail }),
-    });
-
-    return { sessionId: session.id, url: session.url };
-  } catch (error) {
-    console.error("Error creating checkout session:", error);
-    throw error;
-  }
-}
-
 export async function POST(request: Request) {
   try {
-    const { priceId, successUrl, cancelUrl } = await request.json();
+    console.log("Payment API route called");
+
+    // Parse the request body
+    const body = await request.json();
+    console.log("Request body:", body);
+
+    const { priceId, successUrl, cancelUrl } = body;
+
+    if (!priceId || !successUrl || !cancelUrl) {
+      console.error("Missing required fields:", {
+        priceId,
+        successUrl,
+        cancelUrl,
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Missing required fields",
+        },
+        { status: 400 }
+      );
+    }
 
     // Validate the price ID
     const validPackage = CREDIT_PACKAGES.find((pkg) => pkg.priceId === priceId);
     if (!validPackage) {
+      console.error("Invalid price ID:", priceId);
       return NextResponse.json(
-        { success: false, message: "Invalid price ID" },
+        {
+          success: false,
+          message: "Invalid price ID",
+        },
         { status: 400 }
       );
     }
@@ -77,32 +62,61 @@ export async function POST(request: Request) {
     } = await supabase.auth.getSession();
 
     if (!session?.user) {
+      console.error("User not authenticated");
       return NextResponse.json(
-        { success: false, message: "Unauthorized" },
+        {
+          success: false,
+          message: "Unauthorized",
+        },
         { status: 401 }
       );
     }
 
-    // Create a checkout session
-    const checkoutSession = await createCheckoutSession({
-      priceId,
-      userId: session.user.id,
-      customerEmail: session.user.email,
-      successUrl,
-      cancelUrl,
-    });
+    console.log("Creating Stripe checkout session for user:", session.user.id);
 
-    return NextResponse.json({
-      success: true,
-      sessionId: checkoutSession.sessionId,
-      url: checkoutSession.url,
-    });
-  } catch (error) {
-    console.error("Error creating payment session:", error);
+    // Create a checkout session
+    try {
+      const stripeSession = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        billing_address_collection: "auto",
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        mode: "payment",
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          userId: session.user.id,
+        },
+        ...(session.user.email && { customer_email: session.user.email }),
+      });
+
+      console.log("Checkout session created:", stripeSession.id);
+
+      return NextResponse.json({
+        success: true,
+        sessionId: stripeSession.id,
+        url: stripeSession.url,
+      });
+    } catch (stripeError: any) {
+      console.error("Stripe error:", stripeError);
+      return NextResponse.json(
+        {
+          success: false,
+          message: stripeError.message || "Error creating Stripe session",
+        },
+        { status: 500 }
+      );
+    }
+  } catch (error: any) {
+    console.error("Error in payment API route:", error);
     return NextResponse.json(
       {
         success: false,
-        message: "Something went wrong. Please try again.",
+        message: error.message || "Something went wrong. Please try again.",
       },
       { status: 500 }
     );

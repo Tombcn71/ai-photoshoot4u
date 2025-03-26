@@ -10,6 +10,7 @@ import DashboardHeader from "@/components/dashboard-header";
 import BillingForm from "@/components/billing-form";
 import PaymentHistory from "@/components/payment-history";
 import Link from "next/link";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export default async function BillingPage({
   searchParams,
@@ -93,7 +94,16 @@ export default async function BillingPage({
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
               }>
-              <PaymentHistory />
+              <ErrorBoundary
+                fallback={
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>
+                      Failed to load payment history. Please try again later.
+                    </p>
+                  </div>
+                }>
+                <PaymentHistory />
+              </ErrorBoundary>
             </Suspense>
           </div>
         </div>

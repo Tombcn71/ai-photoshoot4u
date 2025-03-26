@@ -22,7 +22,7 @@ import { Loader2 } from "lucide-react";
 
 interface Payment {
   id: string;
-  created_at: string;
+  created_at: string | null;
   amount: number;
   currency: string;
   status: string;
@@ -38,16 +38,45 @@ export default function PaymentHistory() {
   useEffect(() => {
     async function fetchPayments() {
       try {
+        console.log("Fetching payments...");
+
+        // Check if the user is authenticated
+        const { data: sessionData, error: sessionError } =
+          await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.error("Session error:", sessionError);
+          throw new Error(`Authentication error: ${sessionError.message}`);
+        }
+
+        if (!sessionData.session) {
+          console.error("No active session found");
+          throw new Error("You must be logged in to view payment history");
+        }
+
+        console.log("User authenticated, fetching payments...");
+
+        // Fetch payments for the current user
         const { data, error } = await supabase
           .from("payments")
           .select("*")
+          .eq("user_id", sessionData.session.user.id)
           .order("created_at", { ascending: false });
 
-        if (error) throw error;
+        if (error) {
+          console.error("Supabase error:", error);
+          throw error;
+        }
+
+        console.log("Payments fetched:", data?.length || 0);
         setPayments(data || []);
       } catch (error) {
         console.error("Error fetching payments:", error);
-        setError("Failed to load payment history. Please try again later.");
+        setError(
+          error instanceof Error
+            ? `Failed to load payment history: ${error.message}`
+            : "Failed to load payment history. Please try again later."
+        );
       } finally {
         setIsLoading(false);
       }
@@ -101,7 +130,9 @@ export default function PaymentHistory() {
             {payments.map((payment) => (
               <TableRow key={payment.id}>
                 <TableCell>
-                  {format(new Date(payment.created_at), "MMM d, yyyy")}
+                  {payment.created_at
+                    ? format(new Date(payment.created_at), "MMM d, yyyy")
+                    : "N/A"}
                 </TableCell>
                 <TableCell className="capitalize">
                   {payment.package_id}

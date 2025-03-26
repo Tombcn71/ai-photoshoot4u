@@ -42,6 +42,8 @@ export default function BillingForm() {
         throw new Error("Invalid package selected");
       }
 
+      console.log("Creating checkout session with priceId:", selectedPriceId);
+
       // Create a checkout session
       const response = await fetch("/api/payment", {
         method: "POST",
@@ -55,16 +57,32 @@ export default function BillingForm() {
         }),
       });
 
-      const data = await response.json();
+      console.log("Response status:", response.status);
+
+      // Log the raw response for debugging
+      const responseText = await response.text();
+      console.log("Raw response:", responseText);
+
+      // Parse the JSON (if it's valid JSON)
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error("Failed to parse response as JSON:", e);
+        throw new Error("Invalid response from server");
+      }
 
       if (!response.ok) {
-        throw new Error(data.message || "Something went wrong");
+        console.error("Error response:", data);
+        throw new Error(data.message || "Failed to create checkout session");
       }
 
       // Redirect to Stripe Checkout
       if (data.url) {
+        console.log("Redirecting to:", data.url);
         window.location.href = data.url;
       } else {
+        console.error("No checkout URL returned:", data);
         throw new Error("No checkout URL returned");
       }
     } catch (error) {
