@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
-import { stripe } from "@/lib/stripe";
-import { CREDIT_PACKAGES } from "@/lib/stripe";
+import { stripe } from "@/lib/stripe-server";
+import { CREDIT_PACKAGES } from "@/lib/stripe-client";
 
 export async function POST(request: Request) {
   const body = await request.text();
-  // Fix: Await the headers() function
   const headersList = headers();
   const signature = (await headersList).get("stripe-signature") as string;
 

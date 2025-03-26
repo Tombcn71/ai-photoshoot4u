@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
-import { CREDIT_PACKAGES } from "@/lib/stripe";
+import { CREDIT_PACKAGES } from "@/lib/stripe-client";
 import { Button } from "@/components/ui/button";
 import {
   Card,
