@@ -6,7 +6,13 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // Add this utility function for handling request body streams
-export async function streamToString(stream: ReadableStream): Promise<string> {
+export async function streamToString(
+  stream: ReadableStream<Uint8Array> | null
+): Promise<string> {
+  if (!stream) {
+    return "";
+  }
+
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let result = "";

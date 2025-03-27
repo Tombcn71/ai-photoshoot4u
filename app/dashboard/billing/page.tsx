@@ -10,30 +10,33 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+// Force dynamic rendering to ensure we always get fresh data
+export const dynamic = "force-dynamic";
+
 export default async function BillingPage() {
   const supabase = createServerComponentClient({ cookies });
 
-  // Get the current user
+  // Get the current user directly
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!session) {
-    redirect("/login");
+  if (!user) {
+    return redirect("/login");
   }
 
   // Get the user's profile including credits
   const { data: profile } = await supabase
     .from("profiles")
     .select("credits")
-    .eq("id", session.user.id)
+    .eq("id", user.id)
     .single();
 
   // Get the user's payment history
   const { data: payments } = await supabase
     .from("payments")
     .select("*")
-    .eq("user_id", session.user.id)
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(5);
 
@@ -60,7 +63,7 @@ export default async function BillingPage() {
 
       <div className="space-y-6">
         <h2 className="text-2xl font-bold">Purchase Credits</h2>
-        <StripePricingTable user={session.user} />
+        <StripePricingTable user={user} />
       </div>
 
       {payments && payments.length > 0 && (
