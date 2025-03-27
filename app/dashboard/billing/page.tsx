@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import ClientSideCredits from "@/components/ClientSideCredits";
 
 // Force dynamic rendering to ensure we always get fresh data
 export const dynamic = "force-dynamic";
@@ -16,20 +17,20 @@ export const dynamic = "force-dynamic";
 export default async function BillingPage() {
   const supabase = createServerComponentClient({ cookies });
 
-  // Get the current user directly
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Get the current user
+  const { data, error } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (error || !data.user) {
     return redirect("/login");
   }
 
-  // Get the user's profile including credits
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("credits")
-    .eq("id", user.id)
+  const user = data.user;
+
+  // Get the user's credits
+  const { data: creditsData } = await supabase
+    .from("credits")
+    .select("*")
+    .eq("user_id", user.id)
     .single();
 
   // Get the user's payment history
@@ -56,7 +57,9 @@ export default async function BillingPage() {
             <CardDescription>Your current credit balance</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-4xl font-bold">{profile?.credits || 0}</p>
+            <p className="text-4xl font-bold">
+              <ClientSideCredits creditsRow={creditsData} />
+            </p>
           </CardContent>
         </Card>
       </div>
