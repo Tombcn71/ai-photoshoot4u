@@ -195,6 +195,13 @@ export async function POST(request: Request) {
               package_id: item.product_name,
               metadata: {
                 product_id: item.product_id,
+                // Include discount information if available
+                discount_amount: session.total_details?.amount_discount
+                  ? session.total_details.amount_discount / 100
+                  : 0,
+                has_discount: session.total_details?.amount_discount
+                  ? true
+                  : false,
               },
             });
 
@@ -239,9 +246,7 @@ export async function POST(request: Request) {
   }
 }
 
-// This is important for Stripe webhooks
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+// Add GET method to handle Stripe webhook verification
+export async function GET() {
+  return NextResponse.json({ status: "Stripe webhook endpoint is active" });
+}
