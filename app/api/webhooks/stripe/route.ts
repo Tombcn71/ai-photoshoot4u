@@ -2,29 +2,12 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { streamToString } from "@/lib/utils";
 import Stripe from "stripe";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-// Ensure environment variables are defined
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("STRIPE_SECRET_KEY is not set");
-}
-
-if (!process.env.STRIPE_WEBHOOK_SECRET) {
-  throw new Error("STRIPE_WEBHOOK_SECRET is not set");
-}
-
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-  throw new Error("NEXT_PUBLIC_SUPABASE_URL is not set");
-}
-
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
-}
-
 // Initialize Stripe with the secret key
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
   apiVersion: "2025-02-24.acacia",
   typescript: true,
 });
@@ -37,45 +20,15 @@ const PRICE_TO_CREDITS: Record<string, number> = {
   price_1O4L0i2eZvKYlo2C2Q9j3t9r: 1000, // Premium
 };
 
-// Type for credits record
-interface CreditsRecord {
-  id: number;
-  user_id: string;
-  credits: number;
-  created_at?: string;
-  updated_at?: string;
-}
-
-// Type for profile record
-interface ProfileRecord {
-  id: string;
-  credits?: number;
-  [key: string]: any;
-}
-
-// Type for payment record
-interface PaymentRecord {
-  id?: number;
-  user_id: string;
-  amount: number;
-  currency: string;
-  status: string;
-  payment_intent_id: string | null;
-  stripe_session_id: string;
-  credits_purchased: number;
-  package_id: string;
-  created_at?: string;
-}
-
 // Helper function to record payment
 async function recordPayment(
-  supabase: SupabaseClient,
+  supabase: any,
   userId: string,
   session: Stripe.Checkout.Session,
   totalCredits: number
 ): Promise<void> {
   try {
-    const paymentData: PaymentRecord = {
+    const paymentData = {
       user_id: userId,
       amount: session.amount_total ? session.amount_total / 100 : 0,
       currency: session.currency || "usd",
@@ -105,13 +58,45 @@ async function recordPayment(
   }
 }
 
+// Handle OPTIONS requests for CORS preflight
+export async function OPTIONS(): Promise<NextResponse> {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, stripe-signature",
+      "Access-Control-Max-Age": "86400", // 24 hours
+    },
+  });
+}
+
+// Handle POST requests for webhook events
 export async function POST(request: Request): Promise<NextResponse> {
   console.log("🔔 Webhook received");
 
   try {
-    // Get the Stripe signature from headers
-    const headersObj = await headers();
-    const signature = headersObj.get("stripe-signature");
+    // Check required environment variables
+    if (!process.env.STRIPE_SECRET_KEY) {
+      throw new Error("STRIPE_SECRET_KEY is not set");
+    }
+    if (!process.env.STRIPE_WEBHOOK_SECRET) {
+      throw new Error("STRIPE_WEBHOOK_SECRET is not set");
+    }
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      throw new Error("NEXT_PUBLIC_SUPABASE_URL is not set");
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+    }
+
+    // Get the Stripe signature from headers - using type assertion to fix TypeScript error
+    const headersObj = headers();
+    // Use type assertion to work around TypeScript error
+    const headersList = headersObj as unknown as {
+      get(name: string): string | null;
+    };
+    const signature = headersList.get("stripe-signature");
 
     if (!signature) {
       console.error("❌ No Stripe signature found");
@@ -131,7 +116,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       event = stripe.webhooks.constructEvent(
         rawBody,
         signature,
-        process.env.STRIPE_WEBHOOK_SECRET!
+        process.env.STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
       const error = err as Error;
@@ -145,8 +130,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     // Initialize Supabase with service role key for admin access
     const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
       {
         auth: {
           autoRefreshToken: false,
@@ -242,9 +227,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
         // If user has existing credits, add to it
         if (existingCredits) {
-          const typedCredits = existingCredits as CreditsRecord;
-          console.log(`Found existing credits: ${typedCredits.credits}`);
-          const newCredits = typedCredits.credits + totalCredits;
+          console.log(`Found existing credits: ${existingCredits.credits}`);
+          const newCredits = existingCredits.credits + totalCredits;
 
           const { error: updateError } = await supabase
             .from("credits")
@@ -314,8 +298,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           throw new Error(`Failed to fetch profile: ${profileError.message}`);
         }
 
-        const typedProfile = profile as ProfileRecord;
-        const currentCredits = typedProfile?.credits || 0;
+        const currentCredits = profile?.credits || 0;
         const newCredits = currentCredits + totalCredits;
         console.log(
           `Current credits: ${currentCredits}, New credits: ${newCredits}`
