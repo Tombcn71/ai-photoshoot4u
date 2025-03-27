@@ -1,3 +1,4 @@
+import type { Database } from "@/types/supabase";
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { streamToString } from "@/lib/utils";
@@ -6,55 +7,388 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-// Initialize Stripe with the secret key
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2025-02-24.acacia",
-  typescript: true,
-});
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Direct mapping of price IDs to credit amounts
-const PRICE_TO_CREDITS: Record<string, number> = {
-  // Replace these with your actual price IDs from Stripe
-  price_1O4KyJ2eZvKYlo2C3Ix0Ym6R: 100, // Basic
-  price_1O4KzZ2eZvKYlo2C75ZDwEXG: 500, // Standard
-  price_1O4L0i2eZvKYlo2C2Q9j3t9r: 1000, // Premium
+if (!supabaseUrl) {
+  throw new Error("MISSING NEXT_PUBLIC_SUPABASE_URL!");
+}
+
+if (!supabaseServiceRoleKey) {
+  throw new Error("MISSING SUPABASE_SERVICE_ROLE_KEY!");
+}
+
+// Map your price IDs to credit amounts
+// Replace these with your actual price IDs from Stripe
+const basicPriceId = process.env.STRIPE_BASIC_PRICE_ID as string;
+const standardPriceId = process.env.STRIPE_STANDARD_PRICE_ID as string;
+const premiumPriceId = process.env.STRIPE_PREMIUM_PRICE_ID as string;
+
+const creditsPerPriceId: {
+  [key: string]: number;
+} = {
+  [basicPriceId]: 100,
+  [standardPriceId]: 500,
+  [premiumPriceId]: 1000,
 };
 
-// Helper function to record payment
-async function recordPayment(
-  supabase: any,
-  userId: string,
-  session: Stripe.Checkout.Session,
-  totalCredits: number
-): Promise<void> {
+export async function POST(request: Request) {
+  console.log("🔔 Webhook received from: ", request.url);
+  const headersObj = await headers();
+  const sig = headersObj.get("stripe-signature");
+
+  if (!stripeSecretKey) {
+    console.error("❌ Missing stripeSecretKey");
+    return NextResponse.json(
+      {
+        message: `Missing stripeSecretKey`,
+      },
+      { status: 400 }
+    );
+  }
+
+  // Use type assertion to fix the TypeScript error
+  const stripe = new Stripe(stripeSecretKey, {
+    apiVersion: "2023-08-16" as any,
+    typescript: true,
+  });
+
+  if (!sig) {
+    console.error("❌ Missing signature");
+    return NextResponse.json(
+      {
+        message: `Missing signature`,
+      },
+      { status: 400 }
+    );
+  }
+
+  if (!request.body) {
+    console.error("❌ Missing body");
+    return NextResponse.json(
+      {
+        message: `Missing body`,
+      },
+      { status: 400 }
+    );
+  }
+
+  const rawBody = await streamToString(request.body);
+
+  let event;
+
   try {
-    const paymentData = {
-      user_id: userId,
-      amount: session.amount_total ? session.amount_total / 100 : 0,
-      currency: session.currency || "usd",
-      status: "completed",
-      payment_intent_id:
-        typeof session.payment_intent === "string"
-          ? session.payment_intent
-          : null,
-      stripe_session_id: session.id,
-      credits_purchased: totalCredits,
-      package_id: "stripe_purchase",
-    };
+    event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret!);
+    console.log(`✅ Verified webhook: ${event.type}`);
+  } catch (err) {
+    const error = err as Error;
+    console.error(`❌ Error verifying webhook signature: ${error.message}`);
+    return NextResponse.json(
+      {
+        message: `Webhook Error: ${error?.message}`,
+      },
+      { status: 400 }
+    );
+  }
 
-    const { error: paymentError } = await supabase
-      .from("payments")
-      .insert(paymentData);
-
-    if (paymentError) {
-      console.warn(
-        `⚠️ Payment recorded but failed to log: ${paymentError.message}`
-      );
-    } else {
-      console.log(`✅ Payment recorded successfully`);
+  const supabase = createClient<Database>(
+    supabaseUrl as string,
+    supabaseServiceRoleKey as string,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
     }
-  } catch (error) {
-    console.error(`❌ Error recording payment:`, error);
+  );
+
+  // Handle the event
+  switch (event.type) {
+    case "checkout.session.completed":
+      const checkoutSessionCompleted = event.data
+        .object as Stripe.Checkout.Session;
+      const userId = checkoutSessionCompleted.client_reference_id;
+
+      if (!userId) {
+        console.error("❌ Missing client_reference_id");
+        return NextResponse.json(
+          {
+            message: `Missing client_reference_id`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const lineItems = await stripe.checkout.sessions.listLineItems(
+        checkoutSessionCompleted.id
+      );
+
+      if (!lineItems.data.length) {
+        console.error("❌ No line items found");
+        return NextResponse.json(
+          {
+            message: `No line items found`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const quantity = lineItems.data[0].quantity || 1;
+      const priceId = lineItems.data[0].price?.id;
+
+      if (!priceId) {
+        console.error("❌ No price ID found");
+        return NextResponse.json(
+          {
+            message: `No price ID found`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const creditsPerUnit = creditsPerPriceId[priceId];
+
+      if (!creditsPerUnit) {
+        console.error(`❌ No credits mapping found for price ID: ${priceId}`);
+        return NextResponse.json(
+          {
+            message: `No credits mapping found for price ID: ${priceId}`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const totalCreditsPurchased = quantity * creditsPerUnit;
+
+      console.log({ lineItems: lineItems.data });
+      console.log({ quantity });
+      console.log({ priceId });
+      console.log({ creditsPerUnit });
+      console.log("totalCreditsPurchased: " + totalCreditsPurchased);
+
+      try {
+        // First try the credits table
+        const { data: existingCredits, error: creditsError } = await supabase
+          .from("credits")
+          .select("*")
+          .eq("user_id", userId)
+          .single();
+
+        // If user has existing credits, add to it
+        if (existingCredits) {
+          console.log(`Found existing credits: ${existingCredits.credits}`);
+          const newCredits = existingCredits.credits + totalCreditsPurchased;
+
+          const { error: updateError } = await supabase
+            .from("credits")
+            .update({
+              credits: newCredits,
+            })
+            .eq("user_id", userId);
+
+          if (updateError) {
+            console.error(
+              `❌ Error updating credits: ${JSON.stringify(updateError)}`
+            );
+            throw new Error(
+              `Error updating credits: ${JSON.stringify(updateError)}`
+            );
+          }
+
+          console.log(`✅ Credits updated successfully to ${newCredits}`);
+
+          // Record the payment
+          try {
+            await supabase.from("payments").insert({
+              user_id: userId,
+              amount: checkoutSessionCompleted.amount_total
+                ? checkoutSessionCompleted.amount_total / 100
+                : 0,
+              currency: checkoutSessionCompleted.currency || "usd",
+              status: "completed",
+              payment_intent_id:
+                typeof checkoutSessionCompleted.payment_intent === "string"
+                  ? checkoutSessionCompleted.payment_intent
+                  : null,
+              stripe_session_id: checkoutSessionCompleted.id,
+              credits_purchased: totalCreditsPurchased,
+              package_id: "stripe_purchase",
+            });
+            console.log("✅ Payment recorded successfully");
+          } catch (paymentError) {
+            console.warn(
+              "⚠️ Payment completed but failed to record in database:",
+              paymentError
+            );
+          }
+
+          return NextResponse.json(
+            {
+              message: "success",
+              source: "credits_table",
+              userId,
+              totalCreditsPurchased,
+              newCredits,
+            },
+            { status: 200 }
+          );
+        } else {
+          // Else create new credits row
+          console.log(`No existing credits found, creating new entry`);
+          const { error: insertError } = await supabase.from("credits").insert({
+            user_id: userId,
+            credits: totalCreditsPurchased,
+          });
+
+          if (insertError) {
+            console.error(
+              `❌ Error creating credits: ${JSON.stringify(insertError)}`
+            );
+            throw new Error(
+              `Error creating credits: ${JSON.stringify(insertError)}`
+            );
+          }
+
+          console.log(
+            `✅ Credits created successfully with ${totalCreditsPurchased}`
+          );
+
+          // Record the payment
+          try {
+            await supabase.from("payments").insert({
+              user_id: userId,
+              amount: checkoutSessionCompleted.amount_total
+                ? checkoutSessionCompleted.amount_total / 100
+                : 0,
+              currency: checkoutSessionCompleted.currency || "usd",
+              status: "completed",
+              payment_intent_id:
+                typeof checkoutSessionCompleted.payment_intent === "string"
+                  ? checkoutSessionCompleted.payment_intent
+                  : null,
+              stripe_session_id: checkoutSessionCompleted.id,
+              credits_purchased: totalCreditsPurchased,
+              package_id: "stripe_purchase",
+            });
+            console.log("✅ Payment recorded successfully");
+          } catch (paymentError) {
+            console.warn(
+              "⚠️ Payment completed but failed to record in database:",
+              paymentError
+            );
+          }
+
+          return NextResponse.json(
+            {
+              message: "success",
+              source: "credits_table_new",
+              userId,
+              totalCreditsPurchased,
+            },
+            { status: 200 }
+          );
+        }
+      } catch (error) {
+        // If credits table fails, try profiles table as fallback
+        console.error(
+          "❌ Error with credits table, trying profiles table:",
+          error
+        );
+
+        try {
+          // Get current credits from profiles
+          const { data: profile, error: profileError } = await supabase
+            .from("profiles")
+            .select("credits")
+            .eq("id", userId)
+            .single();
+
+          if (profileError) {
+            console.error(`❌ Error fetching profile: ${profileError.message}`);
+            throw new Error(`Failed to fetch profile: ${profileError.message}`);
+          }
+
+          const currentCredits = profile?.credits || 0;
+          const newCredits = currentCredits + totalCreditsPurchased;
+          console.log(
+            `Current credits: ${currentCredits}, New credits: ${newCredits}`
+          );
+
+          // Update the user's credits
+          const { error: updateError } = await supabase
+            .from("profiles")
+            .update({ credits: newCredits })
+            .eq("id", userId);
+
+          if (updateError) {
+            console.error(
+              `❌ Error updating profile credits: ${updateError.message}`
+            );
+            throw new Error(
+              `Failed to update profile credits: ${updateError.message}`
+            );
+          }
+
+          console.log(`✅ Profile credits updated successfully`);
+
+          // Record the payment
+          try {
+            await supabase.from("payments").insert({
+              user_id: userId,
+              amount: checkoutSessionCompleted.amount_total
+                ? checkoutSessionCompleted.amount_total / 100
+                : 0,
+              currency: checkoutSessionCompleted.currency || "usd",
+              status: "completed",
+              payment_intent_id:
+                typeof checkoutSessionCompleted.payment_intent === "string"
+                  ? checkoutSessionCompleted.payment_intent
+                  : null,
+              stripe_session_id: checkoutSessionCompleted.id,
+              credits_purchased: totalCreditsPurchased,
+              package_id: "stripe_purchase",
+            });
+            console.log("✅ Payment recorded successfully");
+          } catch (paymentError) {
+            console.warn(
+              "⚠️ Payment completed but failed to record in database:",
+              paymentError
+            );
+          }
+
+          return NextResponse.json(
+            {
+              message: "success",
+              source: "profiles_table",
+              userId,
+              totalCreditsPurchased,
+              previousCredits: currentCredits,
+              newCredits,
+            },
+            { status: 200 }
+          );
+        } catch (profileError) {
+          console.error("❌ All update methods failed:", profileError);
+          return NextResponse.json(
+            {
+              message: `Failed to update credits: ${String(profileError)}`,
+            },
+            { status: 500 }
+          );
+        }
+      }
+
+    default:
+      console.log(`Unhandled event type ${event.type}`);
+      return NextResponse.json(
+        {
+          message: `Unhandled event type ${event.type}`,
+        },
+        { status: 200 } // Return 200 for unhandled events to avoid Stripe retries
+      );
   }
 }
 
@@ -69,315 +403,6 @@ export async function OPTIONS(): Promise<NextResponse> {
       "Access-Control-Max-Age": "86400", // 24 hours
     },
   });
-}
-
-// Handle POST requests for webhook events
-export async function POST(request: Request): Promise<NextResponse> {
-  console.log("🔔 Webhook received");
-
-  try {
-    // Check required environment variables
-    if (!process.env.STRIPE_SECRET_KEY) {
-      throw new Error("STRIPE_SECRET_KEY is not set");
-    }
-    if (!process.env.STRIPE_WEBHOOK_SECRET) {
-      throw new Error("STRIPE_WEBHOOK_SECRET is not set");
-    }
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      throw new Error("NEXT_PUBLIC_SUPABASE_URL is not set");
-    }
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
-    }
-
-    // Get the Stripe signature from headers - using type assertion to fix TypeScript error
-    const headersObj = headers();
-    // Use type assertion to work around TypeScript error
-    const headersList = headersObj as unknown as {
-      get(name: string): string | null;
-    };
-    const signature = headersList.get("stripe-signature");
-
-    if (!signature) {
-      console.error("❌ No Stripe signature found");
-      return NextResponse.json({ error: "No signature" }, { status: 400 });
-    }
-
-    // Get the raw body
-    if (!request.body) {
-      console.error("❌ No request body found");
-      return NextResponse.json({ error: "No request body" }, { status: 400 });
-    }
-    const rawBody = await streamToString(request.body);
-
-    // Verify the webhook
-    let event: Stripe.Event;
-    try {
-      event = stripe.webhooks.constructEvent(
-        rawBody,
-        signature,
-        process.env.STRIPE_WEBHOOK_SECRET
-      );
-    } catch (err) {
-      const error = err as Error;
-      console.error(
-        `❌ Webhook signature verification failed: ${error.message}`
-      );
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    console.log(`✅ Verified webhook: ${event.type}`);
-
-    // Initialize Supabase with service role key for admin access
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
-    );
-
-    // Handle checkout.session.completed event
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object as Stripe.Checkout.Session;
-      console.log(`Processing checkout session: ${session.id}`);
-
-      // Get user ID from client_reference_id
-      const userId = session.client_reference_id;
-      if (!userId) {
-        console.error("❌ No user ID in session");
-        return NextResponse.json({ error: "No user ID" }, { status: 400 });
-      }
-
-      // Get line items to determine credits
-      const lineItems = await stripe.checkout.sessions.listLineItems(
-        session.id
-      );
-
-      if (!lineItems.data.length) {
-        console.error("❌ No line items found");
-        return NextResponse.json({ error: "No line items" }, { status: 400 });
-      }
-
-      // Calculate total credits
-      let totalCredits = 0;
-
-      for (const item of lineItems.data) {
-        if (!item.price?.id) continue;
-
-        const priceId = item.price.id;
-        const quantity = item.quantity || 1;
-
-        // Get credits from our direct mapping
-        if (PRICE_TO_CREDITS[priceId]) {
-          const credits = PRICE_TO_CREDITS[priceId] * quantity;
-          totalCredits += credits;
-          console.log(`Adding ${credits} credits from price ${priceId}`);
-        } else {
-          // If not in our mapping, try to get from product metadata
-          try {
-            const price = await stripe.prices.retrieve(priceId, {
-              expand: ["product"],
-            });
-
-            const product = price.product as Stripe.Product;
-
-            if (product.metadata?.credits) {
-              const credits =
-                Number.parseInt(product.metadata.credits, 10) * quantity;
-              totalCredits += credits;
-              console.log(`Adding ${credits} credits from product metadata`);
-            } else {
-              console.warn(`⚠️ No credits found for price ${priceId}`);
-            }
-          } catch (err) {
-            const error = err as Error;
-            console.error(`❌ Error fetching price: ${error.message}`);
-          }
-        }
-      }
-
-      if (totalCredits === 0) {
-        console.error("❌ No credits to add");
-        return NextResponse.json(
-          { error: "No credits to add" },
-          { status: 400 }
-        );
-      }
-
-      console.log(`Total credits to add: ${totalCredits}`);
-
-      // First try to update the credits table
-      try {
-        // Check if user has existing credits
-        const { data: existingCredits, error: creditsError } = await supabase
-          .from("credits")
-          .select("*")
-          .eq("user_id", userId)
-          .single();
-
-        if (creditsError && creditsError.code !== "PGRST116") {
-          console.error(
-            `❌ Error checking existing credits: ${creditsError.message}`
-          );
-        }
-
-        // If user has existing credits, add to it
-        if (existingCredits) {
-          console.log(`Found existing credits: ${existingCredits.credits}`);
-          const newCredits = existingCredits.credits + totalCredits;
-
-          const { error: updateError } = await supabase
-            .from("credits")
-            .update({ credits: newCredits })
-            .eq("user_id", userId);
-
-          if (updateError) {
-            console.error(`❌ Error updating credits: ${updateError.message}`);
-            // Don't return error here, we'll try the profiles table next
-          } else {
-            console.log(`✅ Credits updated successfully to ${newCredits}`);
-
-            // Record the payment
-            await recordPayment(supabase, userId, session, totalCredits);
-
-            return NextResponse.json({
-              success: true,
-              source: "credits_table",
-              userId,
-              totalCredits,
-              newCredits,
-            });
-          }
-        } else {
-          // Else create new credits row
-          console.log(`No existing credits found, creating new entry`);
-          const { error: insertError } = await supabase.from("credits").insert({
-            user_id: userId,
-            credits: totalCredits,
-          });
-
-          if (insertError) {
-            console.error(`❌ Error creating credits: ${insertError.message}`);
-            // Don't return error here, we'll try the profiles table next
-          } else {
-            console.log(`✅ Credits created successfully with ${totalCredits}`);
-
-            // Record the payment
-            await recordPayment(supabase, userId, session, totalCredits);
-
-            return NextResponse.json({
-              success: true,
-              source: "credits_table",
-              userId,
-              totalCredits,
-            });
-          }
-        }
-      } catch (error) {
-        const err = error as Error;
-        console.error(`❌ Error updating credits table: ${err.message}`);
-      }
-
-      // If credits table update failed, try the profiles table
-      try {
-        console.log("💳 Trying to update profiles table");
-
-        // Get current credits
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("credits")
-          .eq("id", userId)
-          .single();
-
-        if (profileError) {
-          console.error(`❌ Error fetching profile: ${profileError.message}`);
-          throw new Error(`Failed to fetch profile: ${profileError.message}`);
-        }
-
-        const currentCredits = profile?.credits || 0;
-        const newCredits = currentCredits + totalCredits;
-        console.log(
-          `Current credits: ${currentCredits}, New credits: ${newCredits}`
-        );
-
-        // Update the user's credits
-        const { error: updateError } = await supabase
-          .from("profiles")
-          .update({ credits: newCredits })
-          .eq("id", userId);
-
-        if (updateError) {
-          console.error(
-            `❌ Error updating profile credits: ${updateError.message}`
-          );
-          throw new Error(
-            `Failed to update profile credits: ${updateError.message}`
-          );
-        }
-
-        console.log(`✅ Profile credits updated successfully`);
-
-        // Record the payment
-        await recordPayment(supabase, userId, session, totalCredits);
-
-        return NextResponse.json({
-          success: true,
-          source: "profiles_table",
-          userId,
-          totalCredits,
-          previousCredits: currentCredits,
-          newCredits,
-        });
-      } catch (error) {
-        const err = error as Error;
-        console.error(`❌ Error updating profiles table: ${err.message}`);
-
-        // Last resort: try direct SQL update
-        try {
-          console.log("Attempting direct SQL update...");
-
-          // Try to update profiles table directly
-          const { error: sqlError } = await supabase.rpc("execute_sql", {
-            sql: `UPDATE profiles SET credits = COALESCE(credits, 0) + ${totalCredits} WHERE id = '${userId}'`,
-          });
-
-          if (sqlError) {
-            console.error(`❌ SQL error: ${sqlError.message}`);
-            throw sqlError;
-          }
-
-          console.log("✅ Credits updated via SQL");
-
-          // Record the payment
-          await recordPayment(supabase, userId, session, totalCredits);
-
-          return NextResponse.json({
-            success: true,
-            method: "sql",
-            userId,
-            totalCredits,
-          });
-        } catch (sqlError) {
-          console.error(`❌ All update methods failed`);
-          return NextResponse.json(
-            { error: "Failed to update credits" },
-            { status: 500 }
-          );
-        }
-      }
-    }
-
-    // Return success for other event types
-    return NextResponse.json({ received: true });
-  } catch (err) {
-    const error = err as Error;
-    console.error(`❌ Unhandled error: ${error.message}`);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
 }
 
 // Handle GET requests for testing
